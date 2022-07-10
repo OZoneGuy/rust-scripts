@@ -30,7 +30,7 @@ struct Args {
     rotate: bool,
 
     /// The KMS ARN
-    #[clap(long = "kms", value_parser, env = "KMS_ARN")]
+    #[clap(long = "kms", value_parser, env = "SOPS_KMS_ARN")]
     kms_arn: Option<String>,
 
     /// The directory to check.
