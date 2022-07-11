@@ -54,7 +54,10 @@ fn main() -> std::result::Result<(), Error> {
         return Ok(());
     };
 
-    let dir = args.dir.expect("Need to specify the directory to check...");
+    let dir = args.dir.ok_or(Error::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "Need to specify the directory to check",
+    )))?;
 
     let mut keys_used = HashMap::<String, HashSet<std::path::PathBuf>>::new();
     let mut documents = HashMap::<Document, HashSet<std::path::PathBuf>>::new();
