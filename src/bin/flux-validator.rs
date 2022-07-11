@@ -1,24 +1,41 @@
+#![deny(
+    missing_debug_implementations,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications
+)]
+
+//! Validates that a flux repo will not cause issues when deployed using flux.
+//!
+//! Checks for:
+//! 1. Duplicate names. Only checks deployments.
+//! 2. KMS keys used. Will only return the kms keys used.
+//!   * Can also rotate kms keys using sops.
+//!
+//! ### Future plans
+//! 1. Flags any references to other clusters
+//!    * Useful when copying form one cluster to another
+
 use clap::{ArgGroup, CommandFactory, Parser};
 use clap_complete::{generate, Generator, Shell};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::process::Command;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    path::PathBuf,
+    process::Command,
+};
 use termtree::Tree;
 
-/// Validates that a flux repo will not cause issues when deployed using flux
-///
-/// Checks for:
-/// 1. Duplicate names. Only checks deployments.
-/// 2. KMS keys used. Will only return the kms keys used.
-///   * Can also rotate kms keys using sops.
-///
-/// ### Future plans
-/// 1. Flags any references to other clusters
-///    * Useful when copying form one cluster to another
-
 #[derive(Parser, Debug)]
-#[clap(name = "flux-validator", author, version, about = "Validates a direcotory for usage with Flux.", long_about = None)]
+#[clap(name = "flux-validator",
+       author,
+       version,
+       about = "Validates a direcotory for usage with Flux.",
+       long_about = None)]
 #[clap(group(
     ArgGroup::new("kms")
         .args(&["rotate"])
@@ -34,7 +51,7 @@ struct Args {
     kms_arn: Option<String>,
 
     /// The directory to check.
-    dir: Option<std::path::PathBuf>,
+    dir: Option<PathBuf>,
 
     /// Generate shell completion
     #[clap(short, long)]
@@ -45,7 +62,7 @@ fn print_completions<G: Generator>(gen: G, cmd: &mut clap::App) {
     generate(gen, cmd, cmd.get_name().to_string(), &mut std::io::stdout());
 }
 
-fn main() -> std::result::Result<(), Error> {
+fn main() -> Result<(), Error> {
     let args = Args::parse();
 
     if let Some(generator) = args.gen {
@@ -58,19 +75,23 @@ fn main() -> std::result::Result<(), Error> {
         "Need to specify the directory to check",
     )))?;
 
-    let mut keys_used = HashMap::<String, HashSet<std::path::PathBuf>>::new();
-    let mut documents = HashMap::<Document, HashSet<std::path::PathBuf>>::new();
+    let mut keys_used = HashMap::<String, HashSet<PathBuf>>::new();
+    let mut documents = HashMap::<Document, HashSet<PathBuf>>::new();
+    let mut rotated = HashSet::<PathBuf>::new();
+
+    // Loop through `*-sops.yml` files in the directory, recursively
     for f in glob::glob(&format!("{}/**/*-sops.yml", dir.to_str().unwrap())).map_err(Error::new)? {
         let path = f.map_err(Error::new)?;
         let f = std::fs::File::open(path.clone()).map_err(Error::new)?;
+
+        // Loop through all the documents inthe file
         for s in serde_yaml::Deserializer::from_reader(f) {
             let d = Document::deserialize(s).map_err(Error::new)?;
 
             // Get KMS keys
             if let Some(sops) = &d.sops {
-                // Rotate the kms key if the flag is enabled
-                if args.rotate {
-                    // TODO: Stop rotating the same file multiple times.
+                // Rotate the kms key if the flag is enabled and the file has not been affected yet.
+                if args.rotate && rotated.insert(path.clone()) {
                     // If the file contains multiple documents, it will be rotated once for each document. Need to fix...
                     println!("Rotating keys for {}", path.to_str().unwrap());
                     // decrypt the file
@@ -98,7 +119,7 @@ fn main() -> std::result::Result<(), Error> {
                     docs.insert(path.clone());
                 } else {
                     // Key not used before, create a new set and add it.
-                    let mut docs = HashSet::<std::path::PathBuf>::new();
+                    let mut docs = HashSet::<PathBuf>::new();
                     docs.insert(path.clone());
                     keys_used.insert(sops.arn.clone(), docs);
                 };
@@ -111,7 +132,7 @@ fn main() -> std::result::Result<(), Error> {
                 docs.insert(path.clone());
             } else {
                 // Document not found before, create a new set and add path
-                let mut docs = HashSet::<std::path::PathBuf>::new();
+                let mut docs = HashSet::<PathBuf>::new();
                 docs.insert(path.clone());
                 documents.insert(d, docs);
             };
