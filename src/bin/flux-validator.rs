@@ -1,4 +1,3 @@
-#![allow(unused_variables)]
 use clap::{ArgGroup, CommandFactory, Parser};
 use clap_complete::{generate, Generator, Shell};
 use serde::Deserialize;
