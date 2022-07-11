@@ -50,6 +50,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "3.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ead064480dfc4880a10764488415a97fdd36a4cf1bb022d372f02e8faf8386e1"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "3.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -211,9 +220,10 @@ checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
 
 [[package]]
 name = "rust-scripts"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "clap",
+ "clap_complete",
  "glob",
  "serde",
  "serde-query",

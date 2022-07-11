@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
-use clap::{ArgGroup, Parser};
+use clap::{ArgGroup, CommandFactory, Parser};
+use clap_complete::{generate, Generator, Shell};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -22,7 +23,7 @@ use termtree::Tree;
 #[clap(group(
     ArgGroup::new("kms")
         .args(&["rotate"])
-        .requires("kms-arn")
+        .requires_all(&[ "kms-arn", "dir"])
 ))]
 struct Args {
     /// Rotate the KMS key
@@ -34,14 +35,30 @@ struct Args {
     kms_arn: Option<String>,
 
     /// The directory to check.
-    dir: String,
+    dir: Option<std::path::PathBuf>,
+
+    /// Generate shell completion
+    #[clap(short, long)]
+    gen: Option<Shell>,
+}
+
+fn print_completions<G: Generator>(gen: G, cmd: &mut clap::App) {
+    generate(gen, cmd, cmd.get_name().to_string(), &mut std::io::stdout());
 }
 
 fn main() -> std::result::Result<(), Error> {
     let args = Args::parse();
+
+    if let Some(generator) = args.gen {
+        print_completions(generator, &mut Args::into_app());
+        return Ok(());
+    };
+
+    let dir = args.dir.expect("Need to specify the directory to check...");
+
     let mut keys_used = HashMap::<String, HashSet<std::path::PathBuf>>::new();
     let mut documents = HashMap::<Document, HashSet<std::path::PathBuf>>::new();
-    for f in glob::glob(&format!("{}/**/*-sops.yml", args.dir)).map_err(Error::new)? {
+    for f in glob::glob(&format!("{}/**/*-sops.yml", dir.to_str().unwrap())).map_err(Error::new)? {
         let path = f.map_err(Error::new)?;
         let f = std::fs::File::open(path.clone()).map_err(Error::new)?;
         for s in serde_yaml::Deserializer::from_reader(f) {
@@ -49,38 +66,43 @@ fn main() -> std::result::Result<(), Error> {
 
             // Get KMS keys
             if let Some(sops) = &d.sops {
-                if !args.rotate {
-                    if let Some(docs) = keys_used.get_mut(&sops.arn) {
-                        docs.insert(path.clone());
-                    } else {
-                        let mut docs = HashSet::<std::path::PathBuf>::new();
-                        docs.insert(path.clone());
-                        keys_used.insert(sops.arn.clone(), docs);
-                    };
-                } else {
+                // Rotate the kms key if the flag is enabled
+                if args.rotate {
+                    // TODO: Stop rotating the same file multiple times.
+                    // If the file contains multiple documents, it will be rotated once for each document. Need to fix...
                     println!("Rotating keys for {}", path.to_str().unwrap());
                     // decrypt the file
                     Command::new("sops")
                         .args(["-d", "-i", path.to_str().unwrap()])
                         .output()
-                        .map_err(Error::new)?;
+                        .unwrap();
 
                     // Encrypt the file
                     Command::new("sops")
-                        .args([
-                            "-e",
-                            "-i",
-                            path.to_str().unwrap()
-                        ])
+                        .args(["-e", "-i", path.to_str().unwrap()])
                         .output()
-                        .map_err(Error::new)?;
+                        .unwrap();
                 }
+
+                // Get the kms used in the directory
+                if let Some(docs) = keys_used.get_mut(&sops.arn) {
+                    // Key already found, add to the set of files using it
+                    docs.insert(path.clone());
+                } else {
+                    // Key not used before, create a new set and add it.
+                    let mut docs = HashSet::<std::path::PathBuf>::new();
+                    docs.insert(path.clone());
+                    keys_used.insert(sops.arn.clone(), docs);
+                };
             };
 
             // Get duped documents
             if let Some(docs) = documents.get_mut(&d) {
+                // Document already found, add path to the set
+                // Probably means the document is duped
                 docs.insert(path.clone());
             } else {
+                // Document not found before, create a new set and add path
                 let mut docs = HashSet::<std::path::PathBuf>::new();
                 docs.insert(path.clone());
                 documents.insert(d, docs);
@@ -121,26 +143,39 @@ fn main() -> std::result::Result<(), Error> {
     Ok(())
 }
 
+/// A struct representing a k8s document.
+/// Stores the kind, name, namespace, and sops information.
+/// Should be equal when the kind, metadata information, and sops data is the same.
+/// There is a potential bug if two items have the same name but encrypted differently.
+/// Should manually implement Eq and Hash in that case.
 #[derive(Debug, Deserialize, Eq, PartialEq, Hash, Clone)]
 struct Document {
+    /// The kind of the document, usually a "deployment"
     kind: String,
+    /// Metadata, name and namespace
     #[serde(rename = "metadata")]
     meta: Metadata,
+    /// SOPS encryption, can be absent.
     sops: Option<Sops>,
 }
 
+/// Metadata helper struct
+/// No straight forward way to indicate a nested field.
 #[derive(Debug, Deserialize, Eq, PartialEq, Hash, Clone)]
 struct Metadata {
     name: String,
     namespace: Option<String>,
 }
 
+/// SOPS helper struct
 #[derive(Debug, serde_query::Deserialize, Eq, PartialEq, Hash, Clone)]
 struct Sops {
     #[query(".kms.[0].arn")]
     arn: String,
 }
 
+/// custom error struct
+/// Need a way return a single error type.
 #[derive(Debug)]
 struct Error {
     err: Box<dyn std::error::Error>,
