@@ -19,7 +19,7 @@ use termtree::Tree;
 ///    * Useful when copying form one cluster to another
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about = "Validates a direcotory for usage with Flux.", long_about = None)]
+#[clap(name = "flux-validator", author, version, about = "Validates a direcotory for usage with Flux.", long_about = None)]
 #[clap(group(
     ArgGroup::new("kms")
         .args(&["rotate"])
