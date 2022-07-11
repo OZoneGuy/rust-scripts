@@ -70,12 +70,7 @@ fn main() -> std::result::Result<(), Error> {
                         .args([
                             "-e",
                             "-i",
-                            &format!(
-                                "{}",
-                                args.kms_arn
-                                    .as_ref()
-                                    .expect("KMS Key should have been defined")
-                            ),
+                            path.to_str().unwrap()
                         ])
                         .output()
                         .map_err(Error::new)?;
