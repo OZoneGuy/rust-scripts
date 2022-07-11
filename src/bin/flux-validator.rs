@@ -82,7 +82,13 @@ fn main() -> std::result::Result<(), Error> {
 
                     // Encrypt the file
                     Command::new("sops")
-                        .args(["-e", "-i", path.to_str().unwrap()])
+                        .args([
+                            "-e",
+                            "-i",
+                            "-k",
+                            &args.kms_arn.clone().unwrap(),
+                            path.to_str().unwrap(),
+                        ])
                         .output()
                         .unwrap();
                 }
